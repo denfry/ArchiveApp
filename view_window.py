@@ -641,40 +641,49 @@ class ViewWindow(QMainWindow):
                 cyrillic_font = "Helvetica"
                 cyrillic_font_bold = "Helvetica-Bold"
 
-            # Увеличиваем размеры шрифтов для лучшей читаемости
-            font_size_name = max(8, min(12, int(height / 2.5)))
-            font_size_info = max(6, min(9, int(height / 3.5)))
-            line_height = height / 5.5
+            # Улучшенная компоновка: разделяем наклейку на левую (текст) и правую (QR) части
+            # Увеличиваем отступы для предотвращения перекрытия
+            top_margin = 0.3 * cm  # Отступ сверху
+            left_margin = 0.2 * cm  # Отступ слева
+            right_margin = 0.2 * cm  # Отступ справа
+            bottom_margin = 0.2 * cm  # Отступ снизу
+            
+            # Разделяем ширину: 45% для текста, 55% для QR-кода
+            text_area_width = width * 0.45
+            qr_area_width = width * 0.55
+            
+            # Размеры шрифтов
+            font_size_name = max(9, min(14, int(height / 2.2)))
+            font_size_info = max(7, min(10, int(height / 3.0)))
+            line_height = height / 6.0
 
-            content_y = y + height - 0.2 * cm
-            content_x = x + 0.15 * cm
+            # Позиция текста - левая часть наклейки
+            content_y = y + height - top_margin
+            content_x = x + left_margin
 
             # Название коробки
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_name", True)):
                 name = box["Название"]
 
-                # Улучшенное сокращение текста с учетом реального размера
+                # Проверяем ширину текста
                 try:
                     canvas.setFont(cyrillic_font_bold, font_size_name)
                     test_width = canvas.stringWidth(name, cyrillic_font_bold, font_size_name)
-                    available_width = width * 0.55  # Оставляем место для QR-кода
+                    available_width = text_area_width - 0.1 * cm
                 except:
                     canvas.setFont("Helvetica-Bold", font_size_name)
                     test_width = canvas.stringWidth(name, "Helvetica-Bold", font_size_name)
-                    available_width = width * 0.55
+                    available_width = text_area_width - 0.1 * cm
 
                 # Сокращаем текст если он не помещается
                 if test_width > available_width:
-                    # Пытаемся сократить умно
                     words = name.split()
                     if len(words) > 1:
-                        # Оставляем первое и последнее слово
                         if len(words) >= 2:
                             short_name = f"{words[0]}...{words[-1]}" if len(words) > 2 else f"{words[0]} {words[1]}"
                         else:
                             short_name = words[0][:int(available_width / (font_size_name * 0.08))] + "..."
                     else:
-                        # Сокращаем длинное слово
                         short_name = name[:int(available_width / (font_size_name * 0.08))] + "..."
 
                     # Проверяем сокращенную версию
@@ -693,7 +702,7 @@ class ViewWindow(QMainWindow):
                     canvas.setFont("Helvetica-Bold", font_size_name)
 
                 canvas.drawString(content_x, content_y, name)
-                content_y -= line_height
+                content_y -= line_height * 1.2  # Больше отступ между строками
 
             # Расположение
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_location", True)):
@@ -710,7 +719,7 @@ class ViewWindow(QMainWindow):
                     except:
                         canvas.setFont("Helvetica", font_size_info)
                     canvas.drawString(content_x, content_y, location)
-                    content_y -= line_height * 0.8
+                    content_y -= line_height * 1.0
 
             # Категория (короткие коды для экономии места)
             if format_type == "full" or (format_type == "custom" and custom_options.get("show_category", True)):
@@ -727,19 +736,27 @@ class ViewWindow(QMainWindow):
                             canvas.setFont(cyrillic_font, font_size_info - 1)
                         except:
                             canvas.setFont("Helvetica", font_size_info - 1)
-                        cat_text = "/".join(category_codes)  # Используем / вместо , для экономии места
+                        cat_text = "/".join(category_codes)
                         canvas.drawString(content_x, content_y, cat_text)
                         content_y -= line_height * 0.8
 
-            # QR-код - увеличиваем размер и улучшаем позиционирование
+            # QR-код - значительно увеличен и размещен в правой части
             qr_added = False
             if (format_type == "full" or format_type == "brief" or
                 (format_type == "custom" and custom_options.get("show_qr", True))):
-                # Увеличиваем размер QR-кода до 50% от размера наклейки (было 35%)
-                qr_size = min(width * 0.5, height * 0.5, 2.5 * cm)  # Максимум 2.5 см
-                # Позиционируем QR-код в правом верхнем углу
-                qr_x = x + width - qr_size - 0.15 * cm
-                qr_y = y + height - qr_size - 0.15 * cm
+                # Увеличиваем QR-код: используем 60% высоты и 50% ширины (правая часть)
+                # Минимум 3 см для надежного сканирования
+                qr_size = max(
+                    min(qr_area_width - right_margin * 2, height - top_margin - bottom_margin) * 0.6,
+                    3.0 * cm  # Минимум 3 см для хорошего сканирования
+                )
+                
+                # Позиционируем QR-код в правой части, по центру по вертикали
+                qr_x = x + width - qr_size - right_margin
+                # Центрируем по вертикали в доступном пространстве
+                available_height = height - top_margin - bottom_margin
+                qr_y = y + bottom_margin + (available_height - qr_size) / 2
+                
                 qr_added = self._add_qr_code(canvas, box["ID"], qr_x, qr_y, qr_size)
 
             return qr_added
