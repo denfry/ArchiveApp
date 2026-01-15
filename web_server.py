@@ -447,17 +447,17 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
     <link rel="apple-touch-icon" href="/icon-192.png">
     <script>
         // Регистрация Service Worker
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
+        if ('serviceWorker' in navigator) {{
+            window.addEventListener('load', function() {{
                 navigator.serviceWorker.register('/sw.js')
-                    .then(function(registration) {
+                    .then(function(registration) {{
                         console.log('SW registered: ', registration);
-                    })
-                    .catch(function(registrationError) {
+                    }})
+                    .catch(function(registrationError) {{
                         console.log('SW registration failed: ', registrationError);
-                    });
-            });
-        }
+                    }});
+            }});
+        }}
     </script>
     <title>Коробка: {box['Название']}</title>
     <style>
@@ -1085,17 +1085,17 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
     <link rel="apple-touch-icon" href="/icon-192.png">
     <script>
         // Регистрация Service Worker
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
+        if ('serviceWorker' in navigator) {{
+            window.addEventListener('load', function() {{
                 navigator.serviceWorker.register('/sw.js')
-                    .then(function(registration) {
+                    .then(function(registration) {{
                         console.log('SW registered: ', registration);
-                    })
-                    .catch(function(registrationError) {
+                    }})
+                    .catch(function(registrationError) {{
                         console.log('SW registration failed: ', registrationError);
-                    });
-            });
-        }
+                    }});
+            }});
+        }}
     </script>
     <title>Архив документов - QR сервер</title>
     <style>
