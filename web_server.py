@@ -38,7 +38,11 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         """Обработка GET запросов."""
         try:
-            if self.path.startswith('/box/'):
+            if self.path.startswith('/api/box/'):
+                # JSON API для мобильного приложения
+                box_id = self.path.split('/api/box/')[1].split('?')[0]
+                self.send_box_info_json(box_id)
+            elif self.path.startswith('/box/'):
                 box_id = self.path.split('/box/')[1].split('?')[0]
                 self.send_box_info(box_id)
             elif self.path == '/scanner' or self.path == '/scanner.html':
@@ -98,6 +102,76 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Ошибка отправки иконки: {e}")
             self.send_error(500, f"Error: {str(e)}")
+
+    def send_box_info_json(self, box_id):
+        """Отправка информации о коробке в формате JSON для мобильного приложения."""
+        try:
+            # Получение информации о коробке
+            box = self.manager.find_by_id(box_id)
+            if not box:
+                self.send_response(404)
+                self.send_header('Content-type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"Коробка с ID {box_id} не найдена"}, ensure_ascii=False).encode('utf-8'))
+                return
+
+            # Получение всех документов в коробке
+            documents = self.manager.get_documents_in_box(box_id)
+
+            # Формирование категорий
+            category = box.get('Категория', '')
+            category_descriptions = []
+            if category:
+                for cat in category.split(','):
+                    cat = cat.strip()
+                    desc = get_category_description(cat)
+                    category_descriptions.append(desc)
+
+            # Формирование расположения
+            location_parts = []
+            if box.get('Стеллаж'):
+                location_parts.append(f"Стеллаж: {box['Стеллаж']}")
+            if box.get('Полка'):
+                location_parts.append(f"Полка: {box['Полка']}")
+            location = ', '.join(location_parts) if location_parts else 'Не указано'
+
+            # Формирование данных для JSON
+            data = {
+                "id": box["ID"],
+                "name": box["Название"],
+                "type": box.get("Тип", "Коробка"),
+                "location": location,
+                "shelf": box.get("Стеллаж", ""),
+                "rack": box.get("Полка", ""),
+                "category": category,
+                "category_descriptions": category_descriptions,
+                "documents_count": len(documents),
+                "documents": [
+                    {
+                        "id": doc["ID"],
+                        "name": doc["Название"],
+                        "number": doc.get("Номер документа", ""),
+                        "date": doc.get("Дата подписания", ""),
+                        "category": doc.get("Категория", ""),
+                        "category_description": get_category_description(doc.get("Категория", ""))
+                    }
+                    for doc in documents
+                ]
+            }
+
+            # Отправка JSON ответа
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')  # Для CORS
+            self.end_headers()
+            self.wfile.write(json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8'))
+
+        except Exception as e:
+            logger.error(f"Ошибка получения информации о коробке (JSON): {e}")
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}, ensure_ascii=False).encode('utf-8'))
 
     def send_box_info(self, box_id):
         """Отправка информации о коробке."""
@@ -507,9 +581,12 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
 <body>
     <div class="container">
         <div class="header">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                <a href="/" style="color: white; text-decoration: none; font-size: 1.1em; padding: 5px 10px; border-radius: 5px; background: rgba(255,255,255,0.2);">← Назад</a>
+                <a href="/scanner" style="color: white; text-decoration: none; font-size: 0.9em; padding: 5px 10px; border-radius: 5px; background: rgba(255,255,255,0.2);">📱 Сканер</a>
+            </div>
             <h1>📦 {box['Название']}</h1>
             <div class="box-id">ID: {box['ID']}</div>
-            <a href="/scanner" class="scanner-link">📱 Открыть сканер QR-кодов</a>
         </div>
         <div class="content">
             <div class="info-section">
@@ -724,7 +801,11 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
 <body>
     <div class="container">
         <div class="header">
-            <h1>📱 Сканер QR-кодов</h1>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <a href="/" style="color: white; text-decoration: none; font-size: 1.2em;">← Назад</a>
+                <h1 style="margin: 0; flex: 1; text-align: center;">📱 Сканер QR-кодов</h1>
+                <div style="width: 60px;"></div>
+            </div>
             <p>Наведите камеру на QR-код</p>
         </div>
         <div class="scanner-section">
@@ -787,10 +868,28 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     (decodedText, decodedResult) => {
                         // QR-код успешно распознан
-                        if (decodedText.startsWith('http://localhost:8080/box/')) {
-                            updateStatus('✅ QR-код распознан!', 'success');
-                            showResult(decodedText);
+                        let url = decodedText.trim();
+
+                        // Нормализуем URL
+                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                            // Если нет протокола, добавляем https://
+                            if (url.includes('/box/')) {
+                                url = 'https://' + url;
+                            }
+                        }
+
+                        // Проверяем любой URL, который содержит /box/
+                        if (url.includes('/box/')) {
+                            updateStatus('✅ QR-код распознан! Открываю...', 'success');
                             stopScanner();
+                            // Автоматически открываем страницу через 0.5 секунды
+                            setTimeout(() => {
+                                window.location.href = url;
+                            }, 500);
+                        } else if (url.startsWith('http://') || url.startsWith('https://')) {
+                            // Это URL, но не наш формат
+                            updateStatus('⚠️ Неверный формат QR-кода', 'error');
+                            showResult(url);
                         } else {
                             updateStatus('⚠️ Неверный QR-код', 'error');
                         }
@@ -856,24 +955,72 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
     <link rel="apple-touch-icon" href="/icon-192.png">
     <title>Архив документов - QR сервер</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 50px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            padding: 20px;
             color: white;
         }
         .container {
             background: white;
             color: #333;
             padding: 40px;
-            border-radius: 15px;
+            border-radius: 20px;
             max-width: 600px;
             margin: 0 auto;
             border: 1px solid #e0e0e0;
         }
-        h1 { color: #667eea; }
+        .logo {
+            text-align: center;
+            font-size: 4em;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .features {
+            margin: 30px 0;
+            text-align: left;
+        }
+        .feature-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .feature-icon {
+            font-size: 2em;
+            margin-right: 15px;
+        }
+        .feature-text {
+            flex: 1;
+        }
+        .feature-title {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .feature-desc {
+            color: #666;
+            font-size: 0.9em;
+        }
         .links {
             margin-top: 30px;
             display: flex;
@@ -882,25 +1029,83 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
         }
         .link-btn {
             display: inline-block;
-            padding: 15px 30px;
+            padding: 18px 30px;
             background: #667eea;
             color: white;
             text-decoration: none;
-            border-radius: 10px;
+            border-radius: 12px;
             font-weight: 600;
-            transition: background 0.3s;
+            font-size: 1.1em;
+            transition: all 0.3s;
+            text-align: center;
         }
         .link-btn:hover {
             background: #5568d3;
+            transform: translateY(-2px);
+        }
+        .link-btn.secondary {
+            background: #6c757d;
+        }
+        .link-btn.secondary:hover {
+            background: #5a6268;
+        }
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        .info-box strong {
+            color: #1976D2;
+        }
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 1.5em;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📦 Архив документов</h1>
-        <p>Отсканируйте QR-код на коробке для получения информации</p>
+        <div class="logo">📦</div>
+        <h1>Архив документов</h1>
+        <p class="subtitle">Система управления архивом с QR-кодами</p>
+
+        <div class="features">
+            <div class="feature-item">
+                <div class="feature-icon">📱</div>
+                <div class="feature-text">
+                    <div class="feature-title">Сканер QR-кодов</div>
+                    <div class="feature-desc">Быстрый доступ к информации о коробках</div>
+                </div>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">📄</div>
+                <div class="feature-text">
+                    <div class="feature-title">Список документов</div>
+                    <div class="feature-desc">Полная информация о содержимом коробки</div>
+                </div>
+            </div>
+            <div class="feature-item">
+                <div class="feature-icon">🔍</div>
+                <div class="feature-text">
+                    <div class="feature-title">Поиск и фильтрация</div>
+                    <div class="feature-desc">Быстрый поиск нужных документов</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <strong>💡 Совет:</strong> Добавьте это приложение на главный экран для быстрого доступа!
+        </div>
+
         <div class="links">
             <a href="/scanner" class="link-btn">📱 Открыть сканер QR-кодов</a>
+            <a href="javascript:void(0)" onclick="if('serviceWorker' in navigator) {navigator.serviceWorker.register('/sw.js').then(() => alert('PWA установлено!'))}" class="link-btn secondary">📲 Установить приложение</a>
         </div>
     </div>
 </body>

@@ -10,7 +10,7 @@ from PyQt6.QtGui import QStandardItemModel, QStandardItem, QAction
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QTableView, QLineEdit, QFormLayout,
     QComboBox, QHeaderView, QSplitter, QTreeView, QMessageBox,
-    QGroupBox, QToolBar, QAbstractItemView, QDialog
+    QGroupBox, QToolBar, QAbstractItemView, QDialog, QInputDialog
 )
 
 from models import SQLiteTableModel
@@ -100,6 +100,8 @@ class ViewWindow(QMainWindow):
         self.resize(1500, 850)
         self.manager = DataManager()
         self.db_file = self.manager.db_file
+        # Сохранение BASE_URL для использования в QR-кодах
+        self.base_url = None
         self._setup_styles()
         self._init_model()
         self._create_actions()
@@ -462,6 +464,46 @@ class ViewWindow(QMainWindow):
             return
 
         try:
+            # Проверка BASE_URL
+            base_url = os.environ.get('BASE_URL') or os.environ.get('VERCEL_URL') or 'http://localhost:8080'
+
+            # Если localhost, предлагаем ввести URL
+            if 'localhost' in base_url or '127.0.0.1' in base_url:
+                url, ok = QInputDialog.getText(
+                    self,
+                    "URL для QR-кодов",
+                    "Введите URL вашего развернутого сайта:\n"
+                    "(например: https://your-app.railway.app)\n\n"
+                    "Оставьте пустым для использования localhost:",
+                    text=base_url
+                )
+
+                if ok and url and url.strip():
+                    # Сохраняем в переменную окружения для текущей сессии
+                    base_url = url.strip()
+                    if not base_url.startswith('http'):
+                        base_url = f'https://{base_url}'
+                    os.environ['BASE_URL'] = base_url
+                elif not ok:
+                    # Пользователь отменил
+                    return
+                else:
+                    # Пользователь оставил пустым или localhost
+                    reply = QMessageBox.warning(
+                        self, "⚠️ Предупреждение",
+                        "QR-коды будут содержать localhost, который не работает на телефоне!\n\n"
+                        "Продолжить с localhost?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.No:
+                        return
+
+            # Сохраняем BASE_URL для использования в QR-кодах
+            self.base_url = base_url
+            if not self.base_url.startswith('http'):
+                self.base_url = f'https://{self.base_url}'
+
             # Запустить веб-сервер для QR-кодов
             self._start_web_server_if_needed()
 
@@ -565,10 +607,22 @@ class ViewWindow(QMainWindow):
 
             c.save()
 
+            # Получаем BASE_URL для отображения
+            display_url = self.base_url if hasattr(self, 'base_url') and self.base_url else (
+                os.environ.get('BASE_URL') or os.environ.get('VERCEL_URL') or 'http://localhost:8080'
+            )
+            if display_url and not display_url.startswith('http'):
+                display_url = f'https://{display_url}'
+
+            url_warning = ""
+            if 'localhost' in display_url or '127.0.0.1' in display_url:
+                url_warning = "\n\n⚠️ Внимание: QR-коды содержат localhost!\nОни не будут работать на телефоне."
+
             QMessageBox.information(
                 self, "✅ Успех",
                 f"Наклейки сгенерированы: {filename}\n"
-                f"Страниц: {page_count + 1}, Наклеек: {len(boxes)}, QR-кодов: {qr_count}"
+                f"Страниц: {page_count + 1}, Наклеек: {len(boxes)}, QR-кодов: {qr_count}\n"
+                f"URL для QR-кодов: {display_url}{url_warning}"
             )
             logger.info(f"Сгенерированы наклейки: {filename}, QR-кодов: {qr_count} из {len(boxes)}")
 
@@ -694,11 +748,13 @@ class ViewWindow(QMainWindow):
         """Добавление QR-кода на наклейку."""
         try:
             # Генерация QR-кода с URL
-            # Используем переменную окружения или localhost по умолчанию
-            import os
-            base_url = os.environ.get('BASE_URL') or os.environ.get('VERCEL_URL') or 'http://localhost:8080'
-            if base_url and not base_url.startswith('http'):
-                base_url = f'https://{base_url}'
+            # Используем сохраненный BASE_URL или переменную окружения
+            if hasattr(self, 'base_url') and self.base_url:
+                base_url = self.base_url
+            else:
+                base_url = os.environ.get('BASE_URL') or os.environ.get('VERCEL_URL') or 'http://localhost:8080'
+                if base_url and not base_url.startswith('http'):
+                    base_url = f'https://{base_url}'
             url = f"{base_url}/box/{box_id}"
 
             # Создание QR-кода
