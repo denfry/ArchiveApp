@@ -385,6 +385,89 @@ class DataManager:
             logger.error(f"Ошибка в get_subtree: {e}")
             return []
 
+    def export_to_json(self, json_file):
+        """Экспорт всех данных в JSON файл для синхронизации."""
+        try:
+            logger.info(f"Экспорт данных в JSON: {json_file}")
+            elements = self.load_elements()
+            registry = self.load_registry()
+
+            data = {
+                "elements": elements,
+                "registry": registry,
+                "export_timestamp": str(uuid.uuid4()),
+                "version": "1.0"
+            }
+
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"Экспорт завершен: {len(elements)} элементов, {len(registry)} записей реестра")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка экспорта в JSON: {e}")
+            return False
+
+    def import_from_json(self, json_file):
+        """Импорт данных из JSON файла с полной заменой."""
+        try:
+            logger.info(f"Импорт данных из JSON: {json_file}")
+            if not Path(json_file).exists():
+                logger.warning(f"JSON файл {json_file} не существует")
+                return False
+
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            cursor = self.conn.cursor()
+
+            # Очищаем существующие данные
+            cursor.execute("DELETE FROM elements")
+            cursor.execute("DELETE FROM registry")
+
+            # Импортируем элементы
+            elements = data.get("elements", [])
+            for el in elements:
+                cursor.execute(
+                    "INSERT INTO elements (id, name, type, parent_id, shelf, rack, doc_number, sign_date, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        el["ID"],
+                        el["Название"],
+                        el["Тип"],
+                        el["Родитель ID"] or None,
+                        el["Стеллаж"] or None,
+                        el["Полка"] or None,
+                        el["Номер документа"] or None,
+                        el["Дата подписания"] or None,
+                        el["Категория"] or None
+                    )
+                )
+
+            # Импортируем реестр
+            registry = data.get("registry", [])
+            for reg in registry:
+                cursor.execute(
+                    "INSERT INTO registry (id, name, type, doc_number, sign_date, status, category) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        reg["ID"],
+                        reg["Название"],
+                        reg["Тип"],
+                        reg["Номер документа"] or None,
+                        reg["Дата подписания"] or None,
+                        reg["Статус"] or None,
+                        reg["Категория"] or None
+                    )
+                )
+
+            self.conn.commit()
+            self.elements = []
+            self._elements_loaded = False
+            logger.info(f"Импорт завершен: {len(elements)} элементов, {len(registry)} записей реестра")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка импорта из JSON: {e}")
+            return False
+
     def migrate_from_json(self, json_file):
         try:
             logger.info(f"Миграция данных из JSON: {json_file}")

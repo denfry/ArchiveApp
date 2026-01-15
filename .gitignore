@@ -33,13 +33,13 @@ env/
 *.swo
 *~
 
-# Database
-*.db
-*.db-shm
-*.db-wal
-data/*.db
-data/*.db-shm
-data/*.db-wal
+# Database (временно разрешено для синхронизации)
+# *.db
+# *.db-shm
+# *.db-wal
+# data/*.db
+# data/*.db-shm
+# data/*.db-wal
 
 # Logs
 logs/

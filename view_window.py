@@ -641,47 +641,59 @@ class ViewWindow(QMainWindow):
                 cyrillic_font = "Helvetica"
                 cyrillic_font_bold = "Helvetica-Bold"
 
-            # Используем меньшие размеры для компактности
-            font_size_name = max(6, min(9, int(height / 3.5)))
-            font_size_info = max(5, min(7, int(height / 4.5)))
-            line_height = height / 6
+            # Увеличиваем размеры шрифтов для лучшей читаемости
+            font_size_name = max(8, min(12, int(height / 2.5)))
+            font_size_info = max(6, min(9, int(height / 3.5)))
+            line_height = height / 5.5
 
-            content_y = y + height - 0.15 * cm
+            content_y = y + height - 0.2 * cm
+            content_x = x + 0.15 * cm
 
             # Название коробки
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_name", True)):
                 name = box["Название"]
-                # Адаптивное сокращение в зависимости от размера наклейки
-                max_chars = int(width / 0.12)  # Примерно 1 символ = 0.12 см для кириллицы
-                if len(name) > max_chars:
-                    name = name[:max_chars-3] + "..."
 
-                # Используем шрифт с поддержкой кириллицы
+                # Улучшенное сокращение текста с учетом реального размера
+                try:
+                    canvas.setFont(cyrillic_font_bold, font_size_name)
+                    test_width = canvas.stringWidth(name, cyrillic_font_bold, font_size_name)
+                    available_width = width * 0.55  # Оставляем место для QR-кода
+                except:
+                    canvas.setFont("Helvetica-Bold", font_size_name)
+                    test_width = canvas.stringWidth(name, "Helvetica-Bold", font_size_name)
+                    available_width = width * 0.55
+
+                # Сокращаем текст если он не помещается
+                if test_width > available_width:
+                    # Пытаемся сократить умно
+                    words = name.split()
+                    if len(words) > 1:
+                        # Оставляем первое и последнее слово
+                        if len(words) >= 2:
+                            short_name = f"{words[0]}...{words[-1]}" if len(words) > 2 else f"{words[0]} {words[1]}"
+                        else:
+                            short_name = words[0][:int(available_width / (font_size_name * 0.08))] + "..."
+                    else:
+                        # Сокращаем длинное слово
+                        short_name = name[:int(available_width / (font_size_name * 0.08))] + "..."
+
+                    # Проверяем сокращенную версию
+                    try:
+                        canvas.setFont(cyrillic_font_bold, font_size_name)
+                        short_width = canvas.stringWidth(short_name, cyrillic_font_bold, font_size_name)
+                    except:
+                        short_width = canvas.stringWidth(short_name, "Helvetica-Bold", font_size_name)
+
+                    name = short_name if short_width <= available_width else name[:int(available_width / (font_size_name * 0.08))] + "..."
+
+                # Рисуем название
                 try:
                     canvas.setFont(cyrillic_font_bold, font_size_name)
                 except:
                     canvas.setFont("Helvetica-Bold", font_size_name)
 
-                # Разбиваем длинные строки
-                words = name.split()
-                line = ""
-                for word in words:
-                    test_line = line + " " + word if line else word
-                    try:
-                        test_width = canvas.stringWidth(test_line, cyrillic_font_bold, font_size_name)
-                    except:
-                        test_width = canvas.stringWidth(test_line, "Helvetica-Bold", font_size_name)
-
-                    if test_width < width - 0.3 * cm:
-                        line = test_line
-                    else:
-                        if line:
-                            canvas.drawString(x + 0.1 * cm, content_y, line)
-                            content_y -= line_height
-                        line = word
-                if line:
-                    canvas.drawString(x + 0.1 * cm, content_y, line)
-                    content_y -= line_height * 0.7
+                canvas.drawString(content_x, content_y, name)
+                content_y -= line_height
 
             # Расположение
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_location", True)):
@@ -697,45 +709,37 @@ class ViewWindow(QMainWindow):
                         canvas.setFont(cyrillic_font, font_size_info)
                     except:
                         canvas.setFont("Helvetica", font_size_info)
-                    canvas.drawString(x + 0.1 * cm, content_y, location)
-                    content_y -= line_height * 0.7
+                    canvas.drawString(content_x, content_y, location)
+                    content_y -= line_height * 0.8
 
-            # Категория (только для полного формата, в кратком не помещается)
+            # Категория (короткие коды для экономии места)
             if format_type == "full" or (format_type == "custom" and custom_options.get("show_category", True)):
                 category = box.get("Категория", "")
                 if category:
-                    category_names = []
+                    category_codes = []
                     for cat in category.split(","):
                         cat = cat.strip()
-                        if cat == "ТС":
-                            category_names.append("ТС")
-                        elif cat == "ВО":
-                            category_names.append("ВО")
-                        elif cat == "ВС":
-                            category_names.append("ВС")
-                        elif cat == "ЛК":
-                            category_names.append("ЛК")
-                        elif cat == "УУТЭ":
-                            category_names.append("УУТЭ")
-                        elif cat == "УУХВС":
-                            category_names.append("УУХВС")
+                        if cat in ["ТС", "ВО", "ВС", "ЛК", "УУТЭ", "УУХВС"]:
+                            category_codes.append(cat)
 
-                    if category_names:
+                    if category_codes:
                         try:
                             canvas.setFont(cyrillic_font, font_size_info - 1)
                         except:
                             canvas.setFont("Helvetica", font_size_info - 1)
-                        cat_text = ", ".join(category_names)
-                        canvas.drawString(x + 0.1 * cm, content_y, cat_text)
-                        content_y -= line_height * 0.7
+                        cat_text = "/".join(category_codes)  # Используем / вместо , для экономии места
+                        canvas.drawString(content_x, content_y, cat_text)
+                        content_y -= line_height * 0.8
 
-            # QR-код (размер адаптируется под размер наклейки)
+            # QR-код - увеличиваем размер и улучшаем позиционирование
             qr_added = False
             if (format_type == "full" or format_type == "brief" or
                 (format_type == "custom" and custom_options.get("show_qr", True))):
-                qr_size = min(width * 0.35, height * 0.35, 1.2 * cm)
-                qr_x = x + width - qr_size - 0.1 * cm
-                qr_y = y + 0.1 * cm
+                # Увеличиваем размер QR-кода до 50% от размера наклейки (было 35%)
+                qr_size = min(width * 0.5, height * 0.5, 2.5 * cm)  # Максимум 2.5 см
+                # Позиционируем QR-код в правом верхнем углу
+                qr_x = x + width - qr_size - 0.15 * cm
+                qr_y = y + height - qr_size - 0.15 * cm
                 qr_added = self._add_qr_code(canvas, box["ID"], qr_x, qr_y, qr_size)
 
             return qr_added
@@ -757,12 +761,12 @@ class ViewWindow(QMainWindow):
                     base_url = f'https://{base_url}'
             url = f"{base_url}/box/{box_id}"
 
-            # Создание QR-кода
+            # Создание QR-кода с улучшенными настройками
             qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=2,
+                version=None,  # Автоматический выбор версии
+                error_correction=qrcode.constants.ERROR_CORRECT_M,  # Средняя коррекция ошибок
+                box_size=8,  # Меньший размер пикселей для лучшего качества при печати
+                border=2,  # Граница
             )
             qr.add_data(url)
             qr.make(fit=True)
