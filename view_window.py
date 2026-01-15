@@ -548,10 +548,22 @@ class ViewWindow(QMainWindow):
             cols = settings["layout"]["cols"]
             rows = settings["layout"]["rows"]
 
-            # Расчет размеров наклейки (уменьшаем отступы для большего количества наклеек)
-            margin = 0.2 * cm
-            label_width = (page_width - 2 * margin) / cols
-            label_height = (page_height - 2 * margin) / rows
+            # Расчет размеров наклейки с ПРАВИЛЬНЫМИ отступами
+            # Уменьшаем margin для максимального использования пространства
+            margin_x = 0.5 * cm  # Горизонтальный отступ от края
+            margin_y = 0.5 * cm  # Вертикальный отступ от края
+
+            # Расстояние между наклейками
+            gap_x = 0.2 * cm  # Промежуток между колонками
+            gap_y = 0.2 * cm  # Промежуток между рядами
+
+            # Доступное пространство для наклеек
+            available_width = page_width - 2 * margin_x
+            available_height = page_height - 2 * margin_y
+
+            # Размер одной наклейки
+            label_width = (available_width - (cols - 1) * gap_x) / cols
+            label_height = (available_height - (rows - 1) * gap_y) / rows
 
             # Создание PDF
             c = canvas.Canvas(filename, pagesize=A4)
@@ -560,11 +572,9 @@ class ViewWindow(QMainWindow):
             # Регистрация шрифта с поддержкой кириллицы
             try:
                 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-                # Используем шрифт с поддержкой кириллицы
                 pdfmetrics.registerFont(UnicodeCIDFont('HeiseiMin-W3'))
             except:
                 try:
-                    # Альтернативный шрифт
                     pdfmetrics.registerFont(UnicodeCIDFont('HeiseiKakuGo-W5'))
                 except:
                     logger.warning("Не удалось зарегистрировать шрифт с поддержкой кириллицы, используется Helvetica")
@@ -578,6 +588,8 @@ class ViewWindow(QMainWindow):
             qr_count = 0
 
             logger.info(f"Начало генерации PDF с {len(boxes)} наклейками")
+            logger.info(f"Размер наклейки: {label_width/cm:.2f}x{label_height/cm:.2f} см")
+            logger.info(f"Сетка: {cols}x{rows}")
 
             for box in boxes:
                 if label_count >= cols * rows:
@@ -586,20 +598,17 @@ class ViewWindow(QMainWindow):
                     page_count += 1
                     label_count = 0
 
-                # Расчет позиции наклейки
+                # Расчет позиции наклейки в сетке
                 col = label_count % cols
                 row = label_count // cols
 
-                x = margin + col * label_width
-                y = page_height - margin - (row + 1) * label_height
-
-                # Рисование рамки наклейки
-                c.setLineWidth(0.5)
-                c.rect(x, y, label_width, label_height)
+                # ИСПРАВЛЕННАЯ формула позиции с учётом промежутков
+                x = margin_x + col * (label_width + gap_x)
+                y = page_height - margin_y - (row + 1) * label_height - row * gap_y
 
                 # Генерация содержимого наклейки
                 qr_added = self._draw_label_content(c, box, x, y, label_width, label_height,
-                                       format_type, custom_options)
+                                    format_type, custom_options)
                 if qr_added:
                     qr_count += 1
 
@@ -622,6 +631,7 @@ class ViewWindow(QMainWindow):
                 self, "✅ Успех",
                 f"Наклейки сгенерированы: {filename}\n"
                 f"Страниц: {page_count + 1}, Наклеек: {len(boxes)}, QR-кодов: {qr_count}\n"
+                f"Размер наклейки: {label_width/cm:.1f}x{label_height/cm:.1f} см\n"
                 f"URL для QR-кодов: {display_url}{url_warning}"
             )
             logger.info(f"Сгенерированы наклейки: {filename}, QR-кодов: {qr_count} из {len(boxes)}")
@@ -631,7 +641,7 @@ class ViewWindow(QMainWindow):
             QMessageBox.critical(self, "❌ Ошибка", f"Не удалось сгенерировать PDF:\n{str(e)}")
 
     def _draw_label_content(self, canvas, box, x, y, width, height, format_type, custom_options):
-        """Отрисовка содержимого наклейки."""
+        """Отрисовка содержимого наклейки с двумя ячейками."""
         try:
             # Определяем шрифт для кириллицы
             try:
@@ -641,87 +651,128 @@ class ViewWindow(QMainWindow):
                 cyrillic_font = "Helvetica"
                 cyrillic_font_bold = "Helvetica-Bold"
 
-            # Улучшенная компоновка: разделяем наклейку на левую (текст) и правую (QR) части
-            # Увеличиваем отступы для предотвращения перекрытия
-            top_margin = 0.3 * cm  # Отступ сверху
-            left_margin = 0.2 * cm  # Отступ слева
-            right_margin = 0.2 * cm  # Отступ справа
-            bottom_margin = 0.2 * cm  # Отступ снизу
-            
-            # Разделяем ширину: 45% для текста, 55% для QR-кода
-            text_area_width = width * 0.45
-            qr_area_width = width * 0.55
-            
+            # === ДЕЛИМ НАКЛЕЙКУ НА ДВЕ ЯЧЕЙКИ ===
+            # Левая ячейка: 60% ширины для текста
+            # Правая ячейка: 40% ширины для QR-кода
+            text_cell_width = width * 0.6
+            qr_cell_width = width * 0.4
+
+            # Рисуем внешнюю рамку наклейки
+            canvas.setLineWidth(1.5)
+            canvas.setStrokeColorRGB(0, 0, 0)
+            canvas.rect(x, y, width, height)
+
+            # Рисуем вертикальную разделительную линию между ячейками
+            canvas.setLineWidth(1)
+            canvas.setStrokeColorRGB(0.5, 0.5, 0.5)
+            canvas.line(x + text_cell_width, y, x + text_cell_width, y + height)
+
+            # === ЛЕВАЯ ЯЧЕЙКА: ТЕКСТОВАЯ ИНФОРМАЦИЯ ===
+            text_padding = 0.3 * cm
+            text_x = x + text_padding
+            text_y = y + height - text_padding
+            text_max_width = text_cell_width - 2 * text_padding
+
             # Размеры шрифтов
-            font_size_name = max(9, min(14, int(height / 2.2)))
-            font_size_info = max(7, min(10, int(height / 3.0)))
-            line_height = height / 6.0
+            font_size_name = max(10, min(14, int(height / 2.5)))
+            font_size_info = max(8, min(11, int(height / 3.5)))
+            line_spacing = font_size_info * 1.5
 
-            # Позиция текста - левая часть наклейки
-            content_y = y + height - top_margin
-            content_x = x + left_margin
+            current_y = text_y
 
-            # Название коробки
+            # 1. НАЗВАНИЕ (в цветной рамке)
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_name", True)):
                 name = box["Название"]
 
-                # Проверяем ширину текста
+                # Разбиваем длинное название на строки
                 try:
                     canvas.setFont(cyrillic_font_bold, font_size_name)
-                    test_width = canvas.stringWidth(name, cyrillic_font_bold, font_size_name)
-                    available_width = text_area_width - 0.1 * cm
-                except:
-                    canvas.setFont("Helvetica-Bold", font_size_name)
-                    test_width = canvas.stringWidth(name, "Helvetica-Bold", font_size_name)
-                    available_width = text_area_width - 0.1 * cm
-
-                # Сокращаем текст если он не помещается
-                if test_width > available_width:
                     words = name.split()
-                    if len(words) > 1:
-                        if len(words) >= 2:
-                            short_name = f"{words[0]}...{words[-1]}" if len(words) > 2 else f"{words[0]} {words[1]}"
+                    lines = []
+                    current_line = []
+
+                    for word in words:
+                        test_line = " ".join(current_line + [word])
+                        test_width = canvas.stringWidth(test_line, cyrillic_font_bold, font_size_name)
+
+                        if test_width <= text_max_width:
+                            current_line.append(word)
                         else:
-                            short_name = words[0][:int(available_width / (font_size_name * 0.08))] + "..."
-                    else:
-                        short_name = name[:int(available_width / (font_size_name * 0.08))] + "..."
+                            if current_line:
+                                lines.append(" ".join(current_line))
+                                current_line = [word]
+                            else:
+                                lines.append(word[:int(text_max_width / (font_size_name * 0.6))] + "...")
+                                current_line = []
 
-                    # Проверяем сокращенную версию
-                    try:
-                        canvas.setFont(cyrillic_font_bold, font_size_name)
-                        short_width = canvas.stringWidth(short_name, cyrillic_font_bold, font_size_name)
-                    except:
-                        short_width = canvas.stringWidth(short_name, "Helvetica-Bold", font_size_name)
+                    if current_line:
+                        lines.append(" ".join(current_line))
 
-                    name = short_name if short_width <= available_width else name[:int(available_width / (font_size_name * 0.08))] + "..."
+                    # Ограничиваем 2 строками
+                    lines = lines[:2]
 
-                # Рисуем название
-                try:
-                    canvas.setFont(cyrillic_font_bold, font_size_name)
                 except:
                     canvas.setFont("Helvetica-Bold", font_size_name)
+                    lines = [name[:int(text_max_width / (font_size_name * 0.6))]]
 
-                canvas.drawString(content_x, content_y, name)
-                content_y -= line_height * 1.2  # Больше отступ между строками
+                # Рисуем заголовок с синим фоном
+                header_height = len(lines) * (font_size_name * 1.3) + 0.3 * cm
+                canvas.setFillColorRGB(0.2, 0.5, 0.9)  # Синий фон
+                canvas.setStrokeColorRGB(0.2, 0.5, 0.9)
+                canvas.rect(text_x - 0.15*cm, current_y - header_height + 0.25*cm,
+                        text_max_width + 0.3*cm, header_height, fill=1, stroke=1)
 
-            # Расположение
+                # Белый текст на синем фоне
+                canvas.setFillColorRGB(1, 1, 1)
+                for line in lines:
+                    canvas.drawString(text_x, current_y - font_size_name, line)
+                    current_y -= font_size_name * 1.3
+
+                current_y -= 0.4 * cm
+
+            # Восстанавливаем черный цвет
+            canvas.setFillColorRGB(0, 0, 0)
+
+            # 2. РАСПОЛОЖЕНИЕ (с иконками)
+            try:
+                canvas.setFont(cyrillic_font, font_size_info)
+            except:
+                canvas.setFont("Helvetica", font_size_info)
+
             if format_type == "brief" or (format_type == "custom" and custom_options.get("show_location", True)):
-                location_parts = []
                 if box.get("Стеллаж"):
-                    location_parts.append(f"Ст.{box['Стеллаж']}")
+                    location_text = f"📚 Стеллаж: {box['Стеллаж']}"
+                    if canvas.stringWidth(location_text, cyrillic_font, font_size_info) > text_max_width:
+                        location_text = f"Ст: {box['Стеллаж']}"
+
+                    # Фон для расположения
+                    canvas.setFillColorRGB(0.95, 0.95, 0.95)
+                    canvas.setStrokeColorRGB(0.8, 0.8, 0.8)
+                    canvas.rect(text_x - 0.1*cm, current_y - font_size_info - 0.15*cm,
+                            text_max_width + 0.2*cm, font_size_info + 0.3*cm, fill=1, stroke=1)
+
+                    canvas.setFillColorRGB(0, 0, 0)
+                    canvas.drawString(text_x, current_y - font_size_info, location_text)
+                    current_y -= line_spacing
+
                 if box.get("Полка"):
-                    location_parts.append(f"П.{box['Полка']}")
+                    shelf_text = f"📊 Полка: {box['Полка']}"
+                    if canvas.stringWidth(shelf_text, cyrillic_font, font_size_info) > text_max_width:
+                        shelf_text = f"П: {box['Полка']}"
 
-                if location_parts:
-                    location = ", ".join(location_parts)
-                    try:
-                        canvas.setFont(cyrillic_font, font_size_info)
-                    except:
-                        canvas.setFont("Helvetica", font_size_info)
-                    canvas.drawString(content_x, content_y, location)
-                    content_y -= line_height * 1.0
+                    # Фон для полки
+                    canvas.setFillColorRGB(0.95, 0.95, 0.95)
+                    canvas.setStrokeColorRGB(0.8, 0.8, 0.8)
+                    canvas.rect(text_x - 0.1*cm, current_y - font_size_info - 0.15*cm,
+                            text_max_width + 0.2*cm, font_size_info + 0.3*cm, fill=1, stroke=1)
 
-            # Категория (короткие коды для экономии места)
+                    canvas.setFillColorRGB(0, 0, 0)
+                    canvas.drawString(text_x, current_y - font_size_info, shelf_text)
+                    current_y -= line_spacing
+
+                current_y -= 0.2 * cm
+
+            # 3. КАТЕГОРИЯ
             if format_type == "full" or (format_type == "custom" and custom_options.get("show_category", True)):
                 category = box.get("Категория", "")
                 if category:
@@ -732,37 +783,55 @@ class ViewWindow(QMainWindow):
                             category_codes.append(cat)
 
                     if category_codes:
-                        try:
-                            canvas.setFont(cyrillic_font, font_size_info - 1)
-                        except:
-                            canvas.setFont("Helvetica", font_size_info - 1)
-                        cat_text = "/".join(category_codes)
-                        canvas.drawString(content_x, content_y, cat_text)
-                        content_y -= line_height * 0.8
+                        cat_text = "🔧 " + "/".join(category_codes)
+                        canvas.setFont(cyrillic_font, font_size_info - 1)
+                        canvas.setFillColorRGB(0.3, 0.3, 0.3)
 
-            # QR-код - значительно увеличен и размещен в правой части
+                        if canvas.stringWidth(cat_text, cyrillic_font, font_size_info - 1) <= text_max_width:
+                            canvas.drawString(text_x, current_y - font_size_info, cat_text)
+
+            # === ПРАВАЯ ЯЧЕЙКА: QR-КОД ===
             qr_added = False
             if (format_type == "full" or format_type == "brief" or
                 (format_type == "custom" and custom_options.get("show_qr", True))):
-                # Увеличиваем QR-код: используем 60% высоты и 50% ширины (правая часть)
-                # Минимум 3 см для надежного сканирования
-                qr_size = max(
-                    min(qr_area_width - right_margin * 2, height - top_margin - bottom_margin) * 0.6,
-                    3.0 * cm  # Минимум 3 см для хорошего сканирования
-                )
-                
-                # Позиционируем QR-код в правой части, по центру по вертикали
-                qr_x = x + width - qr_size - right_margin
-                # Центрируем по вертикали в доступном пространстве
-                available_height = height - top_margin - bottom_margin
-                qr_y = y + bottom_margin + (available_height - qr_size) / 2
-                
+
+                # QR-код занимает всю правую ячейку с небольшими отступами
+                qr_padding = 0.3 * cm
+                qr_available_space = min(qr_cell_width - 2 * qr_padding, height - 2 * qr_padding)
+                qr_size = max(qr_available_space, 2.0 * cm)
+
+                # Центрируем QR-код в правой ячейке
+                qr_cell_x = x + text_cell_width
+                qr_x = qr_cell_x + (qr_cell_width - qr_size) / 2
+                qr_y = y + (height - qr_size) / 2
+
+                # Белый фон для QR-кода
+                canvas.setFillColorRGB(1, 1, 1)
+                canvas.setStrokeColorRGB(0.9, 0.9, 0.9)
+                canvas.rect(qr_x - 0.15*cm, qr_y - 0.15*cm,
+                        qr_size + 0.3*cm, qr_size + 0.3*cm, fill=1, stroke=1)
+
                 qr_added = self._add_qr_code(canvas, box["ID"], qr_x, qr_y, qr_size)
+
+                # Подпись под QR
+                if qr_added:
+                    canvas.setFillColorRGB(0.5, 0.5, 0.5)
+                    canvas.setFont("Helvetica", 7)
+                    qr_label = "Сканируй"
+                    label_width = canvas.stringWidth(qr_label, "Helvetica", 7)
+                    canvas.drawString(qr_x + (qr_size - label_width) / 2,
+                                    qr_y - 0.35*cm, qr_label)
 
             return qr_added
 
         except Exception as e:
             logger.error(f"Ошибка отрисовки наклейки: {e}")
+            # В случае ошибки рисуем базовую информацию
+            try:
+                canvas.setFont("Helvetica", 10)
+                canvas.drawString(x + 0.3*cm, y + height - 0.5*cm, box.get("Название", "Ошибка"))
+            except:
+                pass
             return False
 
     def _add_qr_code(self, canvas, box_id, x, y, size):
