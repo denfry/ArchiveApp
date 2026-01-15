@@ -44,6 +44,77 @@ class SQLiteTableModel(QAbstractTableModel):
             return self.headers[section]
         return None
 
+    def flags(self, index):
+        """Return item flags."""
+        if not index.isValid():
+            return Qt.ItemFlag.ItemIsEnabled
+        # Make all columns except ID and location editable
+        if index.column() in [0, 8]:  # ID and location columns are not editable
+            return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEditable
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        """Set data for the given index."""
+        if not index.isValid() or role != Qt.ItemDataRole.EditRole:
+            return False
+
+        row = index.row()
+        column = index.column()
+
+        if row >= len(self.elements):
+            return False
+
+        # Get the element ID
+        el_id = self.elements[row][0]
+
+        # Map column to database field
+        column_to_field = {
+            1: "name",           # Название
+            2: "type",           # Тип
+            3: "parent_id",      # Родитель ID
+            4: "shelf",          # Стеллаж
+            5: "rack",           # Полка
+            6: "doc_number",     # Номер документа
+            7: "sign_date",      # Дата подписания
+            9: "category"        # Категория
+        }
+
+        if column not in column_to_field:
+            return False
+
+        field = column_to_field[column]
+
+        try:
+            cursor = self.conn.cursor()
+            # Handle empty strings for parent_id and other fields
+            if field == "parent_id" and (value == "" or value is None):
+                value = None
+            elif value == "":
+                value = None
+
+            cursor.execute(f"UPDATE elements SET {field} = ? WHERE id = ?", (value, el_id))
+            self.conn.commit()
+
+            # Update the local data
+            self.elements[row] = list(self.elements[row])
+            self.elements[row][column] = value or ""
+            self.elements[row] = tuple(self.elements[row])
+
+            # Rebuild location path if necessary
+            if column in [2, 3, 4, 5]:  # Type, parent_id, shelf, rack
+                location = self._build_location_path(el_id)
+                self.elements[row] = list(self.elements[row])
+                self.elements[row][8] = location
+                self.elements[row] = tuple(self.elements[row])
+
+            self.dataChanged.emit(index, index)
+            return True
+
+        except Exception as e:
+            import logging
+            logging.error(f"Ошибка обновления данных: {e}")
+            return False
+
     def _build_location_path(self, el_id):
         path_parts = []
         current_id = el_id

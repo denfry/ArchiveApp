@@ -223,6 +223,15 @@ class ViewWindow(QMainWindow):
                                                                                                 "Все",
                                                                                                 "Не указана"] else ""))
         filter_layout.addRow("Категория:", self.category_filter)
+        self.box_filter = QComboBox()
+        self.box_filter.addItem("Все")
+        # Add box names to the filter
+        boxes = self.manager.get_boxes()
+        for box in boxes:
+            self.box_filter.addItem(box["name"], box["id"])
+        self.box_filter.currentTextChanged.connect(lambda: self.proxy_model.set_filter(3,
+                                                                                        self.box_filter.currentData() if self.box_filter.currentText() != "Все" else ""))
+        filter_layout.addRow("Коробка:", self.box_filter)
         clear_filters_btn = AnimatedButton("🗑 Сбросить фильтры")
         clear_filters_btn.clicked.connect(self._clear_filters)
         filter_layout.addRow(clear_filters_btn)
@@ -234,6 +243,7 @@ class ViewWindow(QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed)
         self.table.doubleClicked.connect(self._on_table_double_click)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.tree = QTreeView()
@@ -253,6 +263,7 @@ class ViewWindow(QMainWindow):
         self.rack_filter.clear()
         self.doc_number_filter.clear()
         self.category_filter.setCurrentText("Все")
+        self.box_filter.setCurrentText("Все")
         self.proxy_model.clear_filters()
 
     def refresh_data(self):
@@ -641,21 +652,19 @@ class ViewWindow(QMainWindow):
             QMessageBox.critical(self, "❌ Ошибка", f"Не удалось сгенерировать PDF:\n{str(e)}")
 
     def _draw_label_content(self, canvas, box, x, y, width, height, format_type, custom_options):
-        """Отрисовка содержимого наклейки с двумя ячейками."""
+        """Отрисовка минималистичной наклейки: только номер и QR-код."""
         try:
             # Определяем шрифт для кириллицы
             try:
-                cyrillic_font = "HeiseiMin-W3"
                 cyrillic_font_bold = "HeiseiMin-W3"
             except:
-                cyrillic_font = "Helvetica"
                 cyrillic_font_bold = "Helvetica-Bold"
 
             # === ДЕЛИМ НАКЛЕЙКУ НА ДВЕ ЯЧЕЙКИ ===
-            # Левая ячейка: 60% ширины для текста
-            # Правая ячейка: 40% ширины для QR-кода
-            text_cell_width = width * 0.6
-            qr_cell_width = width * 0.4
+            # Левая ячейка: 50% ширины для номера
+            # Правая ячейка: 50% ширины для QR-кода
+            text_cell_width = width * 0.5
+            qr_cell_width = width * 0.5
 
             # Рисуем внешнюю рамку наклейки
             canvas.setLineWidth(1.5)
@@ -667,160 +676,59 @@ class ViewWindow(QMainWindow):
             canvas.setStrokeColorRGB(0.5, 0.5, 0.5)
             canvas.line(x + text_cell_width, y, x + text_cell_width, y + height)
 
-            # === ЛЕВАЯ ЯЧЕЙКА: ТЕКСТОВАЯ ИНФОРМАЦИЯ ===
-            text_padding = 0.3 * cm
-            text_x = x + text_padding
-            text_y = y + height - text_padding
-            text_max_width = text_cell_width - 2 * text_padding
+            # === ЛЕВАЯ ЯЧЕЙКА: НОМЕР КОРОБКИ ===
+            # Извлекаем номер из названия (например "Коробка 1А1" -> "1А1")
+            name = box["Название"]
 
-            # Размеры шрифтов
-            font_size_name = max(10, min(14, int(height / 2.5)))
-            font_size_info = max(8, min(11, int(height / 3.5)))
-            line_spacing = font_size_info * 1.5
+            # Пытаемся найти шаблон вида "1А1", "2B3" и т.д.
+            import re
+            # Ищем паттерн: цифры + буква + цифры
+            match = re.search(r'(\d+[А-ЯA-Z]+\d+)', name)
+            if match:
+                label_number = match.group(1)
+            else:
+                # Если не нашли паттерн, берем последнее слово из названия
+                words = name.split()
+                label_number = words[-1] if words else name[:10]
 
-            current_y = text_y
+            # Размер шрифта для номера - очень крупный
+            font_size = max(24, min(48, int(height / 1.5)))
 
-            # 1. НАЗВАНИЕ (в цветной рамке)
-            if format_type == "brief" or (format_type == "custom" and custom_options.get("show_name", True)):
-                name = box["Название"]
-
-                # Разбиваем длинное название на строки
-                try:
-                    canvas.setFont(cyrillic_font_bold, font_size_name)
-                    words = name.split()
-                    lines = []
-                    current_line = []
-
-                    for word in words:
-                        test_line = " ".join(current_line + [word])
-                        test_width = canvas.stringWidth(test_line, cyrillic_font_bold, font_size_name)
-
-                        if test_width <= text_max_width:
-                            current_line.append(word)
-                        else:
-                            if current_line:
-                                lines.append(" ".join(current_line))
-                                current_line = [word]
-                            else:
-                                lines.append(word[:int(text_max_width / (font_size_name * 0.6))] + "...")
-                                current_line = []
-
-                    if current_line:
-                        lines.append(" ".join(current_line))
-
-                    # Ограничиваем 2 строками
-                    lines = lines[:2]
-
-                except:
-                    canvas.setFont("Helvetica-Bold", font_size_name)
-                    lines = [name[:int(text_max_width / (font_size_name * 0.6))]]
-
-                # Рисуем заголовок с синим фоном
-                header_height = len(lines) * (font_size_name * 1.3) + 0.3 * cm
-                canvas.setFillColorRGB(0.2, 0.5, 0.9)  # Синий фон
-                canvas.setStrokeColorRGB(0.2, 0.5, 0.9)
-                canvas.rect(text_x - 0.15*cm, current_y - header_height + 0.25*cm,
-                        text_max_width + 0.3*cm, header_height, fill=1, stroke=1)
-
-                # Белый текст на синем фоне
-                canvas.setFillColorRGB(1, 1, 1)
-                for line in lines:
-                    canvas.drawString(text_x, current_y - font_size_name, line)
-                    current_y -= font_size_name * 1.3
-
-                current_y -= 0.4 * cm
-
-            # Восстанавливаем черный цвет
-            canvas.setFillColorRGB(0, 0, 0)
-
-            # 2. РАСПОЛОЖЕНИЕ (с иконками)
             try:
-                canvas.setFont(cyrillic_font, font_size_info)
+                canvas.setFont(cyrillic_font_bold, font_size)
             except:
-                canvas.setFont("Helvetica", font_size_info)
+                canvas.setFont("Helvetica-Bold", font_size)
 
-            if format_type == "brief" or (format_type == "custom" and custom_options.get("show_location", True)):
-                if box.get("Стеллаж"):
-                    location_text = f"📚 Стеллаж: {box['Стеллаж']}"
-                    if canvas.stringWidth(location_text, cyrillic_font, font_size_info) > text_max_width:
-                        location_text = f"Ст: {box['Стеллаж']}"
+            # Измеряем ширину номера
+            label_width = canvas.stringWidth(label_number, cyrillic_font_bold, font_size)
 
-                    # Фон для расположения
-                    canvas.setFillColorRGB(0.95, 0.95, 0.95)
-                    canvas.setStrokeColorRGB(0.8, 0.8, 0.8)
-                    canvas.rect(text_x - 0.1*cm, current_y - font_size_info - 0.15*cm,
-                            text_max_width + 0.2*cm, font_size_info + 0.3*cm, fill=1, stroke=1)
+            # Центрируем номер в левой ячейке
+            text_x = x + (text_cell_width - label_width) / 2
+            text_y = y + (height - font_size) / 2 + font_size * 0.3  # Небольшая коррекция по вертикали
 
-                    canvas.setFillColorRGB(0, 0, 0)
-                    canvas.drawString(text_x, current_y - font_size_info, location_text)
-                    current_y -= line_spacing
-
-                if box.get("Полка"):
-                    shelf_text = f"📊 Полка: {box['Полка']}"
-                    if canvas.stringWidth(shelf_text, cyrillic_font, font_size_info) > text_max_width:
-                        shelf_text = f"П: {box['Полка']}"
-
-                    # Фон для полки
-                    canvas.setFillColorRGB(0.95, 0.95, 0.95)
-                    canvas.setStrokeColorRGB(0.8, 0.8, 0.8)
-                    canvas.rect(text_x - 0.1*cm, current_y - font_size_info - 0.15*cm,
-                            text_max_width + 0.2*cm, font_size_info + 0.3*cm, fill=1, stroke=1)
-
-                    canvas.setFillColorRGB(0, 0, 0)
-                    canvas.drawString(text_x, current_y - font_size_info, shelf_text)
-                    current_y -= line_spacing
-
-                current_y -= 0.2 * cm
-
-            # 3. КАТЕГОРИЯ
-            if format_type == "full" or (format_type == "custom" and custom_options.get("show_category", True)):
-                category = box.get("Категория", "")
-                if category:
-                    category_codes = []
-                    for cat in category.split(","):
-                        cat = cat.strip()
-                        if cat in ["ТС", "ВО", "ВС", "ЛК", "УУТЭ", "УУХВС"]:
-                            category_codes.append(cat)
-
-                    if category_codes:
-                        cat_text = "🔧 " + "/".join(category_codes)
-                        canvas.setFont(cyrillic_font, font_size_info - 1)
-                        canvas.setFillColorRGB(0.3, 0.3, 0.3)
-
-                        if canvas.stringWidth(cat_text, cyrillic_font, font_size_info - 1) <= text_max_width:
-                            canvas.drawString(text_x, current_y - font_size_info, cat_text)
+            # Рисуем номер
+            canvas.setFillColorRGB(0, 0, 0)
+            canvas.drawString(text_x, text_y, label_number)
 
             # === ПРАВАЯ ЯЧЕЙКА: QR-КОД ===
             qr_added = False
-            if (format_type == "full" or format_type == "brief" or
-                (format_type == "custom" and custom_options.get("show_qr", True))):
 
-                # QR-код занимает всю правую ячейку с небольшими отступами
-                qr_padding = 0.3 * cm
-                qr_available_space = min(qr_cell_width - 2 * qr_padding, height - 2 * qr_padding)
-                qr_size = max(qr_available_space, 2.0 * cm)
+            # QR-код занимает максимум доступного места с отступами
+            qr_padding = 0.3 * cm
+            qr_available_space = min(qr_cell_width - 2 * qr_padding, height - 2 * qr_padding)
+            qr_size = max(qr_available_space, 2.5 * cm)  # Минимум 2.5 см
 
-                # Центрируем QR-код в правой ячейке
-                qr_cell_x = x + text_cell_width
-                qr_x = qr_cell_x + (qr_cell_width - qr_size) / 2
-                qr_y = y + (height - qr_size) / 2
+            # Центрируем QR-код в правой ячейке
+            qr_cell_x = x + text_cell_width
+            qr_x = qr_cell_x + (qr_cell_width - qr_size) / 2
+            qr_y = y + (height - qr_size) / 2
 
-                # Белый фон для QR-кода
-                canvas.setFillColorRGB(1, 1, 1)
-                canvas.setStrokeColorRGB(0.9, 0.9, 0.9)
-                canvas.rect(qr_x - 0.15*cm, qr_y - 0.15*cm,
-                        qr_size + 0.3*cm, qr_size + 0.3*cm, fill=1, stroke=1)
+            # Белый фон для QR-кода
+            canvas.setFillColorRGB(1, 1, 1)
+            canvas.rect(qr_x - 0.1*cm, qr_y - 0.1*cm,
+                    qr_size + 0.2*cm, qr_size + 0.2*cm, fill=1, stroke=0)
 
-                qr_added = self._add_qr_code(canvas, box["ID"], qr_x, qr_y, qr_size)
-
-                # Подпись под QR
-                if qr_added:
-                    canvas.setFillColorRGB(0.5, 0.5, 0.5)
-                    canvas.setFont("Helvetica", 7)
-                    qr_label = "Сканируй"
-                    label_width = canvas.stringWidth(qr_label, "Helvetica", 7)
-                    canvas.drawString(qr_x + (qr_size - label_width) / 2,
-                                    qr_y - 0.35*cm, qr_label)
+            qr_added = self._add_qr_code(canvas, box["ID"], qr_x, qr_y, qr_size)
 
             return qr_added
 
@@ -828,8 +736,8 @@ class ViewWindow(QMainWindow):
             logger.error(f"Ошибка отрисовки наклейки: {e}")
             # В случае ошибки рисуем базовую информацию
             try:
-                canvas.setFont("Helvetica", 10)
-                canvas.drawString(x + 0.3*cm, y + height - 0.5*cm, box.get("Название", "Ошибка"))
+                canvas.setFont("Helvetica-Bold", 20)
+                canvas.drawString(x + 0.5*cm, y + height/2, box.get("Название", "?")[-10:])
             except:
                 pass
             return False

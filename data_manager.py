@@ -502,6 +502,17 @@ class DataManager:
             logger.error(f"Ошибка при миграции из JSON: {e}")
             return False
 
+    def get_boxes(self):
+        """Получить список всех коробок."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT id, name FROM elements WHERE type = 'Коробка' ORDER BY name")
+            boxes = [{"id": row[0], "name": row[1]} for row in cursor.fetchall()]
+            return boxes
+        except Exception as e:
+            logger.error(f"Ошибка получения списка коробок: {e}")
+            return []
+
     def get_documents_in_box(self, box_id):
         """Получить все документы в коробке (рекурсивно, включая документы в папках)."""
         try:

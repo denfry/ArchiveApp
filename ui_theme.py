@@ -129,19 +129,20 @@ class AnimatedButton(QPushButton):
         self._pressed_timer.setSingleShot(True)
         self._pressed_timer.timeout.connect(self._reset_press_effect)
 
-    def enterEvent(self, event):
-        self.hover_animation.stop()
-        self.hover_animation.setStartValue(self.effect.opacity())
-        self.hover_animation.setEndValue(0.85)
-        self.hover_animation.start()
-        super().enterEvent(event)
+    # Hover effects removed as requested
+    # def enterEvent(self, event):
+    #     self.hover_animation.stop()
+    #     self.hover_animation.setStartValue(self.effect.opacity())
+    #     self.hover_animation.setEndValue(0.85)
+    #     self.hover_animation.start()
+    #     super().enterEvent(event)
 
-    def leaveEvent(self, event):
-        self.hover_animation.stop()
-        self.hover_animation.setStartValue(self.effect.opacity())
-        self.hover_animation.setEndValue(1.0)
-        self.hover_animation.start()
-        super().leaveEvent(event)
+    # def leaveEvent(self, event):
+    #     self.hover_animation.stop()
+    #     self.hover_animation.setStartValue(self.effect.opacity())
+    #     self.hover_animation.setEndValue(1.0)
+    #     self.hover_animation.start()
+    #     super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         # Небольшой визуальный отклик при нажатии
