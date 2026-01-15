@@ -1,0 +1,5 @@
+PyQt6>=6.0.0
+openpyxl>=3.0.0
+reportlab>=4.0.0
+qrcode[pil]>=7.0.0
+Pillow>=8.0.0
