@@ -6,6 +6,7 @@ import logging
 import os
 import sqlite3
 import urllib.parse
+import html
 from pathlib import Path
 
 from data_manager import DataManager, get_category_description, get_app_dir
@@ -35,6 +36,77 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
         self.manager = manager
         super().__init__(*args, **kwargs)
 
+    def send_error(self, code, message=None, explain=None):
+        """Переопределяем send_error для поддержки UTF-8."""
+        try:
+            # Получаем стандартные сообщения об ошибках
+            if message is None:
+                try:
+                    message = self.responses.get(code, ['Unknown Error'])[0]
+                except (AttributeError, KeyError, IndexError):
+                    message = 'Unknown Error'
+            if explain is None:
+                try:
+                    explain = self.responses.get(code, ['', ''])[1]
+                except (AttributeError, KeyError, IndexError):
+                    explain = ''
+
+            # Экранируем HTML для безопасности
+            msg_escaped = html.escape(str(message))
+            exp_escaped = html.escape(str(explain)) if explain else ''
+
+            # Формируем HTML ответ с ошибкой
+            error_html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ошибка {code}</title>
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }}
+        .error-box {{
+            background: white;
+            color: #333;
+            padding: 40px;
+            border-radius: 15px;
+            max-width: 600px;
+            margin: 0 auto;
+        }}
+        h1 {{ color: #d32f2f; }}
+    </style>
+</head>
+<body>
+    <div class="error-box">
+        <h1>Ошибка {code}</h1>
+        <p>{msg_escaped}</p>
+        {f'<p style="color: #666; font-size: 0.9em;">{exp_escaped}</p>' if exp_escaped else ''}
+        <a href="/" style="display: inline-block; margin-top: 20px; padding: 10px 20px; background: #667eea; color: white; text-decoration: none; border-radius: 5px;">На главную</a>
+    </div>
+</body>
+</html>"""
+
+            self.send_response(code, message)
+            self.send_header('Content-type', 'text/html; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(error_html.encode('utf-8'))
+        except Exception as e:
+            # Если не удалось отправить ошибку, пытаемся отправить простой текст
+            try:
+                self.send_response(code)
+                self.send_header('Content-type', 'text/plain; charset=utf-8')
+                self.end_headers()
+                error_msg = f"Error {code}: {str(message) if message else 'Unknown error'}"
+                self.wfile.write(error_msg.encode('utf-8'))
+            except:
+                pass
+
     def do_GET(self):
         """Обработка GET запросов."""
         try:
@@ -57,7 +129,21 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(404, "Not Found")
         except Exception as e:
             logger.error(f"Ошибка обработки запроса: {e}")
-            self.send_error(500, f"Internal Server Error: {str(e)}")
+            try:
+                # Пытаемся отправить ошибку через наш переопределенный метод
+                self.send_error(500, f"Internal Server Error: {str(e)}")
+            except Exception as e2:
+                # Если даже отправка ошибки не удалась, логируем
+                logger.error(f"Критическая ошибка при отправке ошибки: {e2}")
+                try:
+                    # Последняя попытка - простой текст
+                    self.send_response(500)
+                    self.send_header('Content-type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    error_msg = f"Error 500: {str(e)}"
+                    self.wfile.write(error_msg.encode('utf-8'))
+                except:
+                    pass
 
     def send_manifest(self):
         """Отправка манифеста PWA."""
@@ -656,21 +742,47 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
             border-radius: 20px;
             overflow: hidden;
             border: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
         }
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 20px;
+            padding: 15px 20px;
             text-align: center;
+            position: relative;
+            z-index: 1;
+            flex-shrink: 0;
+            width: 100%;
+        }
+        .header-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .header-nav a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.2em;
+            flex-shrink: 0;
         }
         .header h1 {
             font-size: 1.5em;
-            margin-bottom: 10px;
+            margin: 0;
+            flex: 1;
+            text-align: center;
+        }
+        .header p {
+            margin: 0;
+            padding-top: 5px;
+            font-size: 0.95em;
         }
         .scanner-section {
             padding: 20px;
             background: #000;
             position: relative;
+            flex-shrink: 0;
         }
         #qr-reader {
             width: 100%;
@@ -712,6 +824,7 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
         .controls {
             padding: 20px;
             background: white;
+            flex-shrink: 0;
         }
         .btn {
             width: 100%;
@@ -786,6 +899,7 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
             padding: 15px;
             color: #999;
             font-size: 0.9em;
+            flex-shrink: 0;
         }
         @media (max-width: 768px) {
             body {
@@ -801,10 +915,10 @@ class BoxInfoHandler(http.server.SimpleHTTPRequestHandler):
 <body>
     <div class="container">
         <div class="header">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                <a href="/" style="color: white; text-decoration: none; font-size: 1.2em;">← Назад</a>
-                <h1 style="margin: 0; flex: 1; text-align: center;">📱 Сканер QR-кодов</h1>
-                <div style="width: 60px;"></div>
+            <div class="header-nav">
+                <a href="/">← Назад</a>
+                <h1>📱 Сканер QR-кодов</h1>
+                <div style="width: 60px; flex-shrink: 0;"></div>
             </div>
             <p>Наведите камеру на QR-код</p>
         </div>
